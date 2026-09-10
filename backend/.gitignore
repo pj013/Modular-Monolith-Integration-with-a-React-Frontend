@@ -1,0 +1,13 @@
+target/
+*.class
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Never commit real credentials
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml

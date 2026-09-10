@@ -1,0 +1,100 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f4f5f7;
+  color: #1a1a1a;
+}
+
+.page {
+  max-width: 480px;
+  margin: 48px auto;
+  padding: 32px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+h1 {
+  margin-top: 0;
+  font-size: 22px;
+}
+
+.subtitle {
+  color: #666;
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+
+.order-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+select,
+input {
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+button {
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: #1a56db;
+  color: white;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: #9ab0e6;
+  cursor: not-allowed;
+}
+
+.result {
+  margin-top: 20px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.result.success {
+  background: #e6f4ea;
+  border: 1px solid #34a853;
+}
+
+.result.rejected {
+  background: #fdecea;
+  border: 1px solid #d93025;
+}
+
+.result.error {
+  background: #fdecea;
+  border: 1px solid #d93025;
+}
+
+.status {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.reason {
+  color: #555;
+  margin-bottom: 4px;
+}
