@@ -1,6 +1,8 @@
 package edu.cit.aaron.common;
 
 import edu.cit.aaron.inventory.ProductNotFoundException;
+import edu.cit.aaron.shop.OrderConflictException;
+import edu.cit.aaron.shop.OrderNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -31,4 +33,21 @@ public class GlobalExceptionHandler {
         body.put("reason", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
+
+    @ExceptionHandler(OrderNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleOrderNotFound(OrderNotFoundException ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", "NOT_FOUND");
+        body.put("reason", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(OrderConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleOrderConflict(OrderConflictException ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", "CONFLICT");
+        body.put("reason", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
 }
+

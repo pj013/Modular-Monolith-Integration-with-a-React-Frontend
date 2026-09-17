@@ -2,5 +2,13 @@ package edu.cit.aaron.shop;
 
 import edu.cit.aaron.inventory.InventoryItemDto;
 
-public record OrderResponse(String status, String reason, InventoryItemDto inventory) {
+import java.util.List;
+
+public record OrderResponse(
+        Long orderId,
+        String status,
+        String reason,
+        List<ItemOutcome> items,
+        List<InventoryItemDto> inventory
+) {
 }

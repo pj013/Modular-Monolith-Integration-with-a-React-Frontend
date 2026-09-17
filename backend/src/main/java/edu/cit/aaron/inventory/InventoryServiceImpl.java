@@ -1,5 +1,8 @@
 package edu.cit.aaron.inventory;
 
+import edu.cit.aaron.inventory.events.LowStockEvent;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -7,16 +10,23 @@ import java.util.Optional;
 
 /**
  * Package-private on purpose: this class is an implementation detail of the
- * Inventory module. Other modules (e.g. Order) can only see it through the
- * public InventoryService interface, injected by Spring.
+ * Inventory module. Other modules (e.g. Order, Notification) can only see it
+ * through the public InventoryService interface, injected by Spring.
  */
 @Service
 class InventoryServiceImpl implements InventoryService {
 
     private final InventoryRepository repository;
+    private final ApplicationEventPublisher eventPublisher;
+    private final int lowStockThreshold;
 
-    InventoryServiceImpl(InventoryRepository repository) {
+    InventoryServiceImpl(
+            InventoryRepository repository,
+            ApplicationEventPublisher eventPublisher,
+            @Value("${app.inventory.low-stock-threshold:5}") int lowStockThreshold) {
         this.repository = repository;
+        this.eventPublisher = eventPublisher;
+        this.lowStockThreshold = lowStockThreshold;
     }
 
     @Override
@@ -48,7 +58,23 @@ class InventoryServiceImpl implements InventoryService {
 
         entity.setStock(entity.getStock() - quantity);
         repository.save(entity);
+
+        if (entity.getStock() < lowStockThreshold) {
+            eventPublisher.publishEvent(
+                    new LowStockEvent(entity.getProductId(), entity.getName(), entity.getStock(), lowStockThreshold));
+        }
+
         return new ReservationResult(true, null, toDto(entity));
+    }
+
+    @Override
+    @Transactional
+    public InventoryItemDto restock(String productId, int quantity) {
+        InventoryEntity entity = repository.findById(productId)
+                .orElseThrow(() -> new ProductNotFoundException(productId));
+        entity.setStock(entity.getStock() + quantity);
+        repository.save(entity);
+        return toDto(entity);
     }
 
     private InventoryItemDto toDto(InventoryEntity entity) {

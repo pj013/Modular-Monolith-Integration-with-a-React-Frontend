@@ -17,6 +17,15 @@ public interface InventoryService {
      * Attempts to reserve (deduct) the given quantity from stock.
      * Rejects the reservation - without throwing - if the product doesn't exist,
      * the quantity is not positive, or the requested quantity exceeds current stock.
+     * On success, may publish a LowStockEvent if the resulting stock drops below
+     * the configured threshold.
      */
     ReservationResult reserve(String productId, int quantity);
+
+    /**
+     * Returns (adds back) the given quantity to a product's stock - used when an
+     * order is cancelled. Product is assumed to exist (it was validated at order
+     * time); throws ProductNotFoundException if it genuinely doesn't.
+     */
+    InventoryItemDto restock(String productId, int quantity);
 }
