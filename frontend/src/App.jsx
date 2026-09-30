@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '')
 const LOW_STOCK_THRESHOLD = 5 // mirrors backend app.inventory.low-stock-threshold default
 
 export default function App() {
   const [products, setProducts] = useState([])
   const [orders, setOrders] = useState([])
+  const [supplierOrders, setSupplierOrders] = useState([])
   const [notifications, setNotifications] = useState([])
 
   const [cart, setCart] = useState([]) // [{ productId, quantity }]
@@ -17,14 +18,24 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false)
   const [cancellingId, setCancellingId] = useState(null)
 
+  const refreshSupplierOrders = () => {
+    fetch(`${API_BASE_URL}/api/supplier/orders`)
+      .then((r) => r.json())
+      .then(setSupplierOrders)
+      .catch(() => {})
+  }
+
   const refreshAll = () => {
     fetch(`${API_BASE_URL}/api/inventory`).then((r) => r.json()).then(setProducts).catch(() => {})
     fetch(`${API_BASE_URL}/api/orders`).then((r) => r.json()).then(setOrders).catch(() => {})
+    refreshSupplierOrders()
     fetch(`${API_BASE_URL}/api/notifications`).then((r) => r.json()).then(setNotifications).catch(() => {})
   }
 
   useEffect(() => {
     refreshAll()
+    const refreshInterval = window.setInterval(refreshSupplierOrders, 15000)
+    return () => window.clearInterval(refreshInterval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -99,10 +110,6 @@ export default function App() {
   return (
     <div className="page">
       <h1>Shop + Inventory</h1>
-      <p className="subtitle">
-        Order module (in-process) → Inventory module → Supabase (Postgres), with
-        Order → Notification via domain events
-      </p>
 
       <div className="grid">
         {/* Cart / order form */}
@@ -226,6 +233,46 @@ export default function App() {
                 </li>
               ))}
             </ul>
+          )}
+        </section>
+
+        {/* Supplier order tracking */}
+        <section className="card">
+          <h2>Supplier orders</h2>
+          {supplierOrders.length === 0 ? (
+            <p className="empty">No supplier orders yet.</p>
+          ) : (
+            <div className="supplier-orders-scroll">
+              <table className="inventory-table supplier-orders-table">
+                <thead>
+                  <tr>
+                    <th>Reference</th>
+                    <th>Product</th>
+                    <th>PO number</th>
+                    <th>Cases</th>
+                    <th>Units</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {supplierOrders.map((supplierOrder) => (
+                    <tr key={supplierOrder.id}>
+                      <td>{supplierOrder.buyerRef}</td>
+                      <td>{supplierOrder.productId} — {productName(supplierOrder.productId)}</td>
+                      <td>{supplierOrder.poNumber || '—'}</td>
+                      <td>{supplierOrder.cases}</td>
+                      <td>{supplierOrder.units}</td>
+                      <td>
+                        <span className={`supplier-status supplier-status-${supplierOrder.status.toLowerCase()}`}>
+                          {supplierOrder.status}
+                        </span>
+                        {supplierOrder.lastError && <small className="supplier-order-error">{supplierOrder.lastError}</small>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 

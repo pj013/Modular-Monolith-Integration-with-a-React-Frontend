@@ -175,6 +175,39 @@ button:disabled {
   font-weight: 600;
 }
 
+.supplier-orders-scroll {
+  overflow-x: auto;
+}
+
+.supplier-orders-table {
+  min-width: 590px;
+}
+
+.supplier-status {
+  font-weight: 600;
+}
+
+.supplier-status-pending,
+.supplier-status-unknown {
+  color: #9a6700;
+}
+
+.supplier-status-failed,
+.supplier-status-cancelled {
+  color: #b3261e;
+}
+
+.supplier-status-delivered {
+  color: #137333;
+}
+
+.supplier-order-error {
+  display: block;
+  max-width: 220px;
+  color: #b3261e;
+  font-size: 11px;
+}
+
 .order-history {
   list-style: none;
   padding: 0;
