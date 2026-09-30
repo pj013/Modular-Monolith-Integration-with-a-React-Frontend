@@ -1,8 +1,9 @@
 # Shop + Inventory + Notification Demo (Lab 2)
 
-A single Spring Boot app with three in-process modules — **Order** (`edu.cit.aaron.shop`),
-**Inventory** (`edu.cit.aaron.inventory`), and **Notification** (`edu.cit.aaron.notification`) —
-sharing one Supabase (Postgres) database, plus a React (Vite) frontend over REST.
+A single Spring Boot app with four modules — **Order** (`edu.cit.aaron.shop`),
+**Inventory** (`edu.cit.aaron.inventory`), **Notification** (`edu.cit.aaron.notification`),
+and the outbound **Supplier ACL** (`edu.cit.aaron.supplier`) — sharing one Supabase
+(Postgres) database, plus a React (Vite) frontend over REST.
 
 Builds on Lab 1: same three integration styles (in-process module calls, service-to-database,
 external REST client) plus a fourth — in-process publish/subscribe via Spring's
@@ -10,22 +11,23 @@ external REST client) plus a fourth — in-process publish/subscribe via Spring'
 
 ---
 
-## 1. Create/rebuild the Supabase schema
+## 1. Create or rebuild the Supabase schema
 
 1. Go to [supabase.com](https://supabase.com) and create a free project (skip if you already
    have one from Lab 1).
-2. Open **SQL Editor → New query**, paste the full contents of `db/schema.sql`, and run it.
-   This **drops and recreates every table from scratch** — `inventory`, `orders`, the new
-   `order_items`, and the new `notifications` — then reseeds:
+2. For a fresh database, open **SQL Editor → New query**, paste the full contents of
+  `db/schema.sql`, and run it. This **drops and recreates every table from scratch** —
+  `inventory`, `orders`, `order_items`, `notifications`, and `supplier_orders` — then reseeds:
     - `P100` Wireless Mouse — 25
     - `P200` Mechanical Keyboard — 10
     - `P300` USB-C Hub — 0
 
-   Re-run this any time you want a clean slate; it's idempotent.
+  Re-running this erases existing table data. For an existing Lab 2 database whose data
+  you want to keep, run only `db/supplier_orders.sql` instead.
 
 ## 2. Configure backend credentials (never committed)
 
-Same three required env vars as Lab 1, plus one new optional one:
+Set these in the backend process environment or IDE launch configuration:
 
 ```
 SUPABASE_DB_URL=jdbc:postgresql://<host>:5432/postgres?sslmode=require
@@ -33,10 +35,15 @@ SUPABASE_DB_USERNAME=postgres.<project-ref>   # use the Session Pooler username/
 SUPABASE_DB_PASSWORD=<your-db-password>
 CORS_ALLOWED_ORIGIN=http://localhost:5173     # optional, this is the default
 LOW_STOCK_THRESHOLD=5                          # optional, this is the default
+LS_API_KEY=<your LegacySupply API key>          # required for supplier requests; never commit it
+LS_CLIENT_ID=18-0668-202                        # optional, this is the default
 ```
 
 Set these in your shell or IDE run configuration — see Lab 1's setup notes if you need the
 per-OS `export` / `$env:` commands. `.env` and `application-local.*` stay gitignored.
+The catalog mappings are configured from the authenticated partner catalog in
+`backend/src/main/resources/application.properties`: P100 `SAV-7593`/6, P200 `SAV-4340`/20,
+and P300 `SAV-5005`/10. `LS_Pxxx_SKU` and `LS_Pxxx_PACK_SIZE` variables can override them.
 
 ## 3. Run the backend
 
@@ -61,7 +68,7 @@ API on `http://localhost:8080`:
 ```bash
 cd frontend
 npm install
-cp .env.example .env   # defaults to http://localhost:8080
+cp .env.example .env   # Vite proxies /api requests to http://localhost:8080
 npm run dev
 ```
 
@@ -70,20 +77,12 @@ inventory table (red-highlighted rows below the low-stock threshold), order hist
 Cancel button on confirmed orders, and an activity feed fed by the notifications endpoint.
 Inventory/history/feed all refetch after every order submission and every cancel.
 
-## 5. Automated tests
+## 5. Supplier integration
 
-```bash
-cd backend
-mvn test
-```
-
-`OrderServiceTest` covers, against a fake `InventoryService`:
-- a multi-item order where every item has stock → `CONFIRMED`, all items reserved
-- a multi-item order where one item is short → `REJECTED`, **zero** `reserve()` calls made
-  (proves all-or-nothing: nothing partially reserved)
-- cancelling a confirmed order → stock restored
-- cancelling an already-cancelled order → `OrderConflictException`
-- cancelling an unknown order → `OrderNotFoundException`
+On a successful reservation that crosses below the low-stock threshold, the backend saves a
+`PENDING` supplier order. Scheduled processing sends it to LegacySupply and polls open POs;
+the API key is read from `LS_API_KEY`. See `INTEGRATION.md` for the catalog mapping, status
+translation, retry behavior, and the remaining live verification checkpoints.
 
 ## 6. Test and capture Network tab evidence for
 
@@ -97,7 +96,7 @@ and **Response**:
 
 ## Module boundaries
 
-Three modules, three interfaces, three sets of package-private implementations:
+Four modules with explicit contracts and package-private implementations:
 
 - **Inventory** (`edu.cit.aaron.inventory`): `InventoryService` is public; `InventoryServiceImpl`,
   `InventoryEntity`, `InventoryRepository` are package-private. Order and Notification never see them.
@@ -108,6 +107,10 @@ Three modules, three interfaces, three sets of package-private implementations:
   record classes — `edu.cit.aaron.shop.events.OrderPlacedEvent/OrderRejectedEvent` and
   `edu.cit.aaron.inventory.events.LowStockEvent` — never `OrderService` or `InventoryService`.
   `NotificationEntity`/`NotificationRepository` are package-private, same pattern as Inventory.
+- **Supplier ACL** (`edu.cit.aaron.supplier`): only `SupplierGateway` and supplier-owned domain
+  types are public. The HTTP client, XML parsing, session handling, repository, and JPA entity are
+  package-private. Low-stock and delivery events connect it to Inventory without exposing supplier
+  protocol details to Order or Inventory.
 
 The event classes live in their own `events` sub-packages (`shop.events`, `inventory.events`) rather
 than in `notification` itself — that's what keeps the dependency one-directional: Notification depends
@@ -141,10 +144,12 @@ inventory      product_id (PK), name, stock
 orders         order_id (PK), status (CONFIRMED|REJECTED|CANCELLED), reason, created_at
 order_items    order_item_id (PK), order_id (FK -> orders), product_id (FK -> inventory), quantity
 notifications  notification_id (PK), message, created_at
+supplier_orders id (PK), product_id, buyer_ref (unique), request_id (unique), po_number,
+               cases, units, status, created_at, updated_at
 ```
 
-`db/schema.sql` drops and recreates all four tables plus seed data — it's the single source of
-truth for the schema, never hand-edited in the Supabase UI.
+`db/schema.sql` drops and recreates all five tables plus seed data. For an existing database,
+`db/supplier_orders.sql` adds the supplier table without dropping existing data.
 
 ## Known limitation: validate-then-reserve race window
 
