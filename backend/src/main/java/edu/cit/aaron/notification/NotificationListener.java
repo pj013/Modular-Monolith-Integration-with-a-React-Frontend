@@ -3,6 +3,7 @@ package edu.cit.aaron.notification;
 import edu.cit.aaron.inventory.events.LowStockEvent;
 import edu.cit.aaron.shop.events.OrderPlacedEvent;
 import edu.cit.aaron.shop.events.OrderRejectedEvent;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -17,11 +18,13 @@ import java.time.LocalDateTime;
  * Listeners run synchronously (no @Async) on purpose - see README for why.
  */
 @Component
+@SuppressWarnings("unused")
 class NotificationListener {
 
     private final NotificationRepository repository;
 
-    NotificationListener(NotificationRepository repository) {
+    @Autowired
+    public NotificationListener(NotificationRepository repository) {
         this.repository = repository;
     }
 

@@ -12,6 +12,7 @@ public class NotificationController {
 
     private final NotificationRepository repository;
 
+    @SuppressWarnings("unused")
     NotificationController(NotificationRepository repository) {
         this.repository = repository;
     }

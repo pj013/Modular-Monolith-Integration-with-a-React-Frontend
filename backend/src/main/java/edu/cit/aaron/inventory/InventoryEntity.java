@@ -23,14 +23,9 @@ class InventoryEntity {
     @Column(name = "stock", nullable = false)
     private int stock;
 
+    @SuppressWarnings("unused")
     protected InventoryEntity() {
         // required by JPA
-    }
-
-    InventoryEntity(String productId, String name, int stock) {
-        this.productId = productId;
-        this.name = name;
-        this.stock = stock;
     }
 
     String getProductId() {

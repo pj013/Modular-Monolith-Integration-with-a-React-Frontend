@@ -1,6 +1,7 @@
 package edu.cit.aaron.inventory;
 
 import edu.cit.aaron.inventory.events.LowStockEvent;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -14,12 +15,14 @@ import java.util.Optional;
  * through the public InventoryService interface, injected by Spring.
  */
 @Service
+@SuppressWarnings("unused")
 class InventoryServiceImpl implements InventoryService {
 
     private final InventoryRepository repository;
     private final ApplicationEventPublisher eventPublisher;
     private final int lowStockThreshold;
 
+    @Autowired
     InventoryServiceImpl(
             InventoryRepository repository,
             ApplicationEventPublisher eventPublisher,
@@ -56,10 +59,11 @@ class InventoryServiceImpl implements InventoryService {
                     toDto(entity));
         }
 
-        entity.setStock(entity.getStock() - quantity);
+        int previousStock = entity.getStock();
+        entity.setStock(previousStock - quantity);
         repository.save(entity);
 
-        if (entity.getStock() < lowStockThreshold) {
+        if (previousStock >= lowStockThreshold && entity.getStock() < lowStockThreshold) {
             eventPublisher.publishEvent(
                     new LowStockEvent(entity.getProductId(), entity.getName(), entity.getStock(), lowStockThreshold));
         }

@@ -1,5 +1,6 @@
 package edu.cit.aaron.inventory;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,11 +14,13 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/inventory")
+@SuppressWarnings("unused")
 public class InventoryController {
 
     private final InventoryRepository repository;
     private final InventoryService inventoryService;
 
+    @Autowired
     InventoryController(InventoryRepository repository, InventoryService inventoryService) {
         this.repository = repository;
         this.inventoryService = inventoryService;
