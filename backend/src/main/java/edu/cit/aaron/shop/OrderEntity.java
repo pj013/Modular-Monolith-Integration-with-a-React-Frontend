@@ -29,6 +29,9 @@ class OrderEntity {
     @Column(name = "reason")
     private String reason;
 
+    @Column(name = "external_reference", unique = true)
+    private String externalReference;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -40,9 +43,14 @@ class OrderEntity {
     }
 
     OrderEntity(String status, String reason, LocalDateTime createdAt) {
+        this(status, reason, createdAt, null);
+    }
+
+    OrderEntity(String status, String reason, LocalDateTime createdAt, String externalReference) {
         this.status = status;
         this.reason = reason;
         this.createdAt = createdAt;
+        this.externalReference = externalReference;
     }
 
     void addItem(OrderItemEntity item) {
@@ -64,6 +72,14 @@ class OrderEntity {
 
     String getReason() {
         return reason;
+    }
+
+    void setReason(String reason) {
+        this.reason = reason;
+    }
+
+    String getExternalReference() {
+        return externalReference;
     }
 
     LocalDateTime getCreatedAt() {

@@ -17,6 +17,6 @@ class LowStockReorderListener {
     @EventListener
     public void onLowStock(LowStockEvent event) {
         int unitsNeeded = Math.max(1, event.threshold() - event.remainingStock());
-        supplierGateway.reorder(event.productId(), unitsNeeded);
+        supplierGateway.ensureReorder(event.productId(), unitsNeeded);
     }
 }

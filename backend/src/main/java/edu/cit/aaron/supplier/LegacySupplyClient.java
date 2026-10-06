@@ -2,6 +2,7 @@ package edu.cit.aaron.supplier;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
+import edu.cit.aaron.channel.ChannelInstanceId;
 import org.springframework.stereotype.Component;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -31,6 +32,7 @@ class LegacySupplyClient {
     private final URI baseUri;
     private final String clientId;
     private final String apiKey;
+    private final ChannelInstanceId instanceId;
     private final Environment environment;
     private final HttpClient httpClient;
     private volatile String sessionToken;
@@ -40,10 +42,12 @@ class LegacySupplyClient {
             @Value("${app.supplier.base-url:https://legacysupply.onrender.com/api/v1}") String baseUrl,
             @Value("${app.supplier.client-id:}") String clientId,
             @Value("${LS_API_KEY:}") String apiKey,
+            ChannelInstanceId instanceId,
             Environment environment) {
         this.baseUri = URI.create(baseUrl.endsWith("/") ? baseUrl : baseUrl + "/");
         this.clientId = clientId;
         this.apiKey = apiKey;
+        this.instanceId = instanceId;
         this.environment = environment;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
     }
@@ -160,7 +164,8 @@ class LegacySupplyClient {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(baseUri.resolve(path))
                     .timeout(REQUEST_TIMEOUT)
-                    .header("Accept", "application/xml");
+                    .header("Accept", "application/xml")
+                    .header("X-Client-Instance", instanceId.value().toString());
             if (body != null) {
                 builder.header("Content-Type", "application/xml; charset=UTF-8")
                         .method(method, HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));

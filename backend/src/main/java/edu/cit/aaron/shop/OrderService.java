@@ -32,6 +32,7 @@ public class OrderService {
     static final String STATUS_CONFIRMED = "CONFIRMED";
     static final String STATUS_REJECTED = "REJECTED";
     static final String STATUS_CANCELLED = "CANCELLED";
+    static final String STATUS_BACKORDERED = "BACKORDERED";
     private static final String OUTCOME_OK = "OK";
     private static final String OUTCOME_RESERVED = "RESERVED";
 
@@ -53,6 +54,30 @@ public class OrderService {
      */
     @Transactional
     public OrderResponse placeOrder(MultiItemOrderRequest request) {
+        return placeOrder(request, null);
+    }
+
+    @Transactional
+    public OrderResponse placeOrder(MultiItemOrderRequest request, String externalReference) {
+        return placeOrder(request, externalReference, false);
+    }
+
+    @Transactional
+    public OrderResponse placeOrderOrBackorder(MultiItemOrderRequest request, String externalReference) {
+        return placeOrder(request, externalReference, true);
+    }
+
+    private OrderResponse placeOrder(
+            MultiItemOrderRequest request, String externalReference, boolean allowBackorder) {
+        if (externalReference != null) {
+            if (externalReference.isBlank()) {
+                throw new IllegalArgumentException("External reference must not be blank");
+            }
+            OrderEntity existing = orderRepository.findByExternalReference(externalReference).orElse(null);
+            if (existing != null) {
+                return existingOrderResponse(existing);
+            }
+        }
         Map<String, String> validation = validateItems(request.items());
         boolean allValid = validation.values().stream().allMatch(OUTCOME_OK::equals);
 
@@ -61,13 +86,26 @@ public class OrderService {
         List<InventoryItemDto> inventorySnapshot = new ArrayList<>();
 
         if (!allValid) {
+            boolean stockShortageOnly = validation.values().stream()
+                    .allMatch(value -> OUTCOME_OK.equals(value) || value.startsWith("Insufficient stock:"));
+            if (allowBackorder && stockShortageOnly) {
+                String reason = "Awaiting supplier delivery";
+                order = new OrderEntity(STATUS_BACKORDERED, reason, LocalDateTime.now(), externalReference);
+                for (OrderItemRequest item : request.items()) {
+                    order.addItem(new OrderItemEntity(item.productId(), item.quantity()));
+                    outcomes.add(new ItemOutcome(item.productId(), item.quantity(), validation.get(item.productId())));
+                    inventorySnapshot.add(safeGetItem(item.productId()));
+                }
+                orderRepository.save(order);
+                return new OrderResponse(order.getOrderId(), STATUS_BACKORDERED, reason, outcomes, inventorySnapshot);
+            }
             String reason = validation.entrySet().stream()
                     .filter(e -> !OUTCOME_OK.equals(e.getValue()))
                     .map(e -> e.getKey() + ": " + e.getValue())
                     .findFirst()
                     .orElse("One or more items could not be fulfilled");
 
-            order = new OrderEntity(STATUS_REJECTED, reason, LocalDateTime.now());
+            order = new OrderEntity(STATUS_REJECTED, reason, LocalDateTime.now(), externalReference);
             for (OrderItemRequest item : request.items()) {
                 order.addItem(new OrderItemEntity(item.productId(), item.quantity()));
                 outcomes.add(new ItemOutcome(item.productId(), item.quantity(), validation.get(item.productId())));
@@ -80,7 +118,7 @@ public class OrderService {
         }
 
         // All items validated - now, and only now, actually reserve each one.
-        order = new OrderEntity(STATUS_CONFIRMED, null, LocalDateTime.now());
+        order = new OrderEntity(STATUS_CONFIRMED, null, LocalDateTime.now(), externalReference);
         for (OrderItemRequest item : request.items()) {
             ReservationResult result = inventoryService.reserve(item.productId(), item.quantity());
             if (!result.success()) {
@@ -112,7 +150,66 @@ public class OrderService {
         if (STATUS_REJECTED.equals(order.getStatus())) {
             throw new OrderConflictException("Order " + orderId + " was rejected - nothing was reserved, so there is nothing to restock");
         }
+        if (STATUS_BACKORDERED.equals(order.getStatus())) {
+            order.setStatus(STATUS_CANCELLED);
+            orderRepository.save(order);
+            return cancellationSnapshot(order);
+        }
 
+        return cancelFoundOrder(order);
+    }
+
+    @Transactional
+    public CancelOrderResponse cancelOrderForExternalReference(String externalReference) {
+        OrderEntity order = orderRepository.findByExternalReference(externalReference)
+                .orElseThrow(() -> new OrderNotFoundException(externalReference));
+        if (STATUS_CANCELLED.equals(order.getStatus())) {
+            return cancellationSnapshot(order);
+        }
+        if (STATUS_REJECTED.equals(order.getStatus())) {
+            return cancellationSnapshot(order);
+        }
+        if (STATUS_BACKORDERED.equals(order.getStatus())) {
+            order.setStatus(STATUS_CANCELLED);
+            orderRepository.save(order);
+            return cancellationSnapshot(order);
+        }
+        return cancelFoundOrder(order);
+    }
+
+    @Transactional
+    public OrderResponse fulfillBackorderedOrder(String externalReference) {
+        OrderEntity order = orderRepository.findByExternalReference(externalReference)
+                .orElseThrow(() -> new OrderNotFoundException(externalReference));
+        if (!STATUS_BACKORDERED.equals(order.getStatus())) {
+            return existingOrderResponse(order);
+        }
+        List<OrderItemRequest> items = order.getItems().stream()
+                .map(item -> new OrderItemRequest(item.getProductId(), item.getQuantity()))
+                .toList();
+        Map<String, String> validation = validateItems(items);
+        if (!validation.values().stream().allMatch(OUTCOME_OK::equals)) {
+            return existingOrderResponse(order);
+        }
+        List<ItemOutcome> outcomes = new ArrayList<>();
+        List<InventoryItemDto> inventorySnapshot = new ArrayList<>();
+        for (OrderItemRequest item : items) {
+            ReservationResult result = inventoryService.reserve(item.productId(), item.quantity());
+            if (!result.success()) {
+                throw new IllegalStateException(
+                        "Stock changed concurrently while fulfilling backorder: " + result.reason());
+            }
+            outcomes.add(new ItemOutcome(item.productId(), item.quantity(), OUTCOME_RESERVED));
+            inventorySnapshot.add(result.item());
+        }
+        order.setStatus(STATUS_CONFIRMED);
+        order.setReason(null);
+        orderRepository.save(order);
+        eventPublisher.publishEvent(new OrderPlacedEvent(order.getOrderId()));
+        return new OrderResponse(order.getOrderId(), STATUS_CONFIRMED, null, outcomes, inventorySnapshot);
+    }
+
+    private CancelOrderResponse cancelFoundOrder(OrderEntity order) {
         List<InventoryItemDto> inventorySnapshot = new ArrayList<>();
         for (OrderItemEntity item : order.getItems()) {
             inventorySnapshot.add(inventoryService.restock(item.getProductId(), item.getQuantity()));
@@ -121,7 +218,26 @@ public class OrderService {
         order.setStatus(STATUS_CANCELLED);
         orderRepository.save(order);
 
-        return new CancelOrderResponse(orderId, STATUS_CANCELLED, inventorySnapshot);
+        return new CancelOrderResponse(order.getOrderId(), STATUS_CANCELLED, inventorySnapshot);
+    }
+
+    private CancelOrderResponse cancellationSnapshot(OrderEntity order) {
+        List<InventoryItemDto> inventorySnapshot = order.getItems().stream()
+                .map(item -> safeGetItem(item.getProductId()))
+                .toList();
+        return new CancelOrderResponse(order.getOrderId(), order.getStatus(), inventorySnapshot);
+    }
+
+    private OrderResponse existingOrderResponse(OrderEntity order) {
+        List<ItemOutcome> outcomes = new ArrayList<>();
+        List<InventoryItemDto> inventorySnapshot = new ArrayList<>();
+        for (OrderItemEntity item : order.getItems()) {
+            outcomes.add(new ItemOutcome(item.getProductId(), item.getQuantity(),
+                    STATUS_CONFIRMED.equals(order.getStatus()) ? OUTCOME_RESERVED : order.getReason()));
+            inventorySnapshot.add(safeGetItem(item.getProductId()));
+        }
+        return new OrderResponse(order.getOrderId(), order.getStatus(), order.getReason(),
+                outcomes, inventorySnapshot);
     }
 
     @Transactional(readOnly = true)

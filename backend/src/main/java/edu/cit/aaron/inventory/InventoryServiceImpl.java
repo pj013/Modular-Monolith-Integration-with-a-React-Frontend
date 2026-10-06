@@ -1,6 +1,7 @@
 package edu.cit.aaron.inventory;
 
 import edu.cit.aaron.inventory.events.LowStockEvent;
+import edu.cit.aaron.inventory.events.InventoryStockChangedEvent;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -42,7 +43,7 @@ class InventoryServiceImpl implements InventoryService {
     @Override
     @Transactional
     public ReservationResult reserve(String productId, int quantity) {
-        Optional<InventoryEntity> found = repository.findById(productId);
+        Optional<InventoryEntity> found = repository.findByIdForUpdate(productId);
         if (found.isEmpty()) {
             return new ReservationResult(false, "Product not found: " + productId, null);
         }
@@ -62,6 +63,7 @@ class InventoryServiceImpl implements InventoryService {
         int previousStock = entity.getStock();
         entity.setStock(previousStock - quantity);
         repository.save(entity);
+        eventPublisher.publishEvent(new InventoryStockChangedEvent(productId, entity.getStock()));
 
         if (previousStock >= lowStockThreshold && entity.getStock() < lowStockThreshold) {
             eventPublisher.publishEvent(
@@ -78,6 +80,7 @@ class InventoryServiceImpl implements InventoryService {
                 .orElseThrow(() -> new ProductNotFoundException(productId));
         entity.setStock(entity.getStock() + quantity);
         repository.save(entity);
+        eventPublisher.publishEvent(new InventoryStockChangedEvent(productId, entity.getStock()));
         return toDto(entity);
     }
 

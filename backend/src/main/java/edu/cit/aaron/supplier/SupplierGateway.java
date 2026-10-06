@@ -7,5 +7,7 @@ public interface SupplierGateway {
 
     SupplierOrderResult reorder(String productId, int unitsNeeded);
 
+    SupplierOrderResult ensureReorder(String productId, int unitsNeeded);
+
     List<SupplierOrderResult> listOrders();
 }

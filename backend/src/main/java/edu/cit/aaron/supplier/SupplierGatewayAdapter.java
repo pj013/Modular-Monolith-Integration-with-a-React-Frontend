@@ -12,6 +12,7 @@ import java.util.List;
 class SupplierGatewayAdapter implements SupplierGateway {
 
     private static final List<SupplierOrderStatus> OPEN_STATUSES = List.of(
+            SupplierOrderStatus.PENDING,
             SupplierOrderStatus.ACCEPTED,
             SupplierOrderStatus.PICKING,
             SupplierOrderStatus.SHIPPED,
@@ -41,6 +42,17 @@ class SupplierGatewayAdapter implements SupplierGateway {
         order.assignReferences();
         repository.save(order);
         return order.toResult();
+    }
+
+    @Override
+    @Transactional
+    public SupplierOrderResult ensureReorder(String productId, int unitsNeeded) {
+        if (productId == null || productId.isBlank() || unitsNeeded < 1) {
+            throw new IllegalArgumentException("Product ID and positive units are required");
+        }
+        return repository.findFirstByProductIdAndStatusInOrderByCreatedAtDesc(productId, OPEN_STATUSES)
+                .map(SupplierOrderEntity::toResult)
+                .orElseGet(() -> reorder(productId, unitsNeeded));
     }
 
     @Override
