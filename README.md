@@ -84,7 +84,26 @@ On a successful reservation that crosses below the low-stock threshold, the back
 the API key is read from `LS_API_KEY`. See `INTEGRATION.md` for the catalog mapping, status
 translation, retry behavior, and the remaining live verification checkpoints.
 
-## 6. Test and capture Network tab evidence for
+## 6. Marketplace channel
+
+Before starting the updated backend against an existing database, run
+`db/marketplace_channel.sql` in the Supabase SQL editor. It is additive and preserves existing
+orders and inventory. The first heartbeat and listing publication make the shop live, so do not
+start the app with `LS_API_KEY` configured until you are ready for real orders.
+
+The marketplace and supplier adapters both read `LS_API_KEY` from the backend process environment.
+The marketplace client ID defaults to the existing `LS_CLIENT_ID`; set `TIANGGE_CLIENT_ID` only if
+your marketplace student ID differs. `TIANGGE_BASE_URL` and the polling/stock-dispatch delays are
+optional overrides documented in `application.properties`. On startup the channel sends a heartbeat,
+publishes all three listings and initial stock, then polls and persists the feed cursor. Inventory
+changes enqueue stock updates, and supplier deliveries retry registered backorders.
+
+Use only the Spring Boot application for real Tiangge and LegacySupply calls. Do not use Postman,
+curl, a browser, or a separate script after going live. The `TianggeHttpClientTest` uses an in-process
+HTTP stub and does not contact either external service. Check
+https://legacysupply.onrender.com/verify for live progress after the app is ready.
+
+## 7. Test and capture Network tab evidence for
 
 Open DevTools → **Network** tab before each action, then screenshot the request **Payload**
 and **Response**:
@@ -96,7 +115,7 @@ and **Response**:
 
 ## Module boundaries
 
-Four modules with explicit contracts and package-private implementations:
+Five modules with explicit contracts and package-private implementations:
 
 - **Inventory** (`edu.cit.aaron.inventory`): `InventoryService` is public; `InventoryServiceImpl`,
   `InventoryEntity`, `InventoryRepository` are package-private. Order and Notification never see them.
@@ -111,6 +130,10 @@ Four modules with explicit contracts and package-private implementations:
   types are public. The HTTP client, XML parsing, session handling, repository, and JPA entity are
   package-private. Low-stock and delivery events connect it to Inventory without exposing supplier
   protocol details to Order or Inventory.
+- **Marketplace channel** (`edu.cit.aaron.channel`): `ChannelGateway` and channel-owned domain types
+  are public. Its HTTP client, JSON handling, feed poller, cursor/outbox persistence, and translators
+  are package-private. It calls the existing Order, Inventory, and Supplier module interfaces; those
+  modules do not import Tiangge types or client code.
 
 The event classes live in their own `events` sub-packages (`shop.events`, `inventory.events`) rather
 than in `notification` itself — that's what keeps the dependency one-directional: Notification depends
@@ -141,27 +164,29 @@ and would compile and run identically if the Notification module were deleted en
 
 ```
 inventory      product_id (PK), name, stock
-orders         order_id (PK), status (CONFIRMED|REJECTED|CANCELLED), reason, created_at
+orders         order_id (PK), status (CONFIRMED|REJECTED|CANCELLED|BACKORDERED), reason,
+               external_reference (unique, nullable), created_at
 order_items    order_item_id (PK), order_id (FK -> orders), product_id (FK -> inventory), quantity
 notifications  notification_id (PK), message, created_at
 supplier_orders id (PK), product_id, buyer_ref (unique), request_id (unique), po_number,
                cases, units, status, created_at, updated_at
+channel_state  singleton feed_cursor
+channel_events event_id (PK), sequence_number, event_type, marketplace/local order references
+channel_stock_outbox seller_sku (PK), latest available stock, dispatch readiness
+channel_backorders marketplace_order_id, local order reference, status, product lines
 ```
 
-`db/schema.sql` drops and recreates all five tables plus seed data. For an existing database,
-`db/supplier_orders.sql` adds the supplier table without dropping existing data.
+`db/schema.sql` drops and recreates the original five tables plus seed data. For an existing
+database, apply `db/supplier_orders.sql` and `db/marketplace_channel.sql` to add the integration
+tables and columns without dropping existing data.
 
-## Known limitation: validate-then-reserve race window
+## Inventory reservation concurrency
 
-`OrderService.placeOrder()` validates every line item's stock (read), and only if *all* pass does
-it call `InventoryService.reserve()` for each (write) — both inside one `@Transactional` method.
-Between the read and the write, a **concurrent** order for the same product could theoretically
-change the stock level, since Postgres's default `READ COMMITTED` isolation doesn't lock rows across
-that gap. For this lab (single-user manual testing) that's not observable, and if it ever did happen,
-`OrderService` throws on an unexpected `reserve()` failure, which rolls back the whole transaction
-(including any items already reserved earlier in the same loop) rather than silently partially
-fulfilling the order. A production system would close this gap with `SELECT ... FOR UPDATE` or an
-optimistic-locking `@Version` column on `inventory`.
+`OrderService.placeOrder()` validates every line item before reserving, and
+`InventoryService.reserve()` obtains a pessimistic write lock on the inventory row before checking
+and decrementing its stock. A concurrent order that loses the race cannot reserve stock based on a
+stale read; any failed reservation aborts the enclosing order transaction, preserving all-or-nothing
+behavior.
 
 ## Project layout
 ## Screen Shot

@@ -11,3 +11,17 @@ The 22:42:40 request was sent manually from Postman, not through my Spring adapt
 ## 3. PO-100356 (BuyerRef "your reference") ended with StatusCode 90, which is not in the documentation. How did you work out what it means, and what does your system now do with the stock that will never arrive?
 
 The manual documents status codes 10, 20, 30, and 40, but not 90; I observed 90 on PO-100356 in LegacySupply's order list and correlated that record with the cancelled-order scenario in the verifier. I added a mapping from 90 to my own `CANCELLED` status in `LegacySupplyClient`, without exposing the supplier code outside the adapter. Inventory is only restocked after a PO reaches `DELIVERED`, so a cancelled PO never adds its expected units to on-hand stock; the cancelled order is not treated as received. The current implementation does not automatically create a replacement PO after a supplier cancellation, so any replacement replenishment must be initiated as a new reorder.
+
+### Marketplace reflection questions
+
+## 1. Duplicate feed event
+
+`ChannelFeedPoller` checks whether an `eventId` was processed before handling it. `ChannelRepository` stores processed IDs in `channel_events`, where `event_id` is the primary key, so the second delivery of `evt_b8cb1cc571eaed55` at seq 155 was skipped. If the app restarted between deliveries, that table and the feed cursor in `channel_state` would still be in the database, so the repeated event would still be recognized.
+
+## 2. Backorder filled after delivery
+
+When PO-104114 was marked delivered, the supplier adapter published a delivery event and `SupplierDeliveryListener` added the received units to Inventory. `ChannelBackorderResolver` listens for that event, retries the waiting order through `OrderService`, reserves the now-available stock, and asks Tiangge to resolve the backorder as accepted.
+
+## 3. Restart recovery
+
+The app resumes polling with the saved cursor from `channel_state`, so after restarting it fetched the feed events that arrived while it was down. It does not start from zero, and `channel_events` plus the order's unique external reference prevent already-processed events or orders from being handled twice.

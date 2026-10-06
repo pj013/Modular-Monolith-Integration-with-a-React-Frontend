@@ -36,6 +36,21 @@ Supplier status codes 10, 20, 30, and 40 map to the adapter's own `ACCEPTED`, `P
 
 The additive migration is `db/supplier_orders.sql`; apply it to the existing database before starting the updated backend. Each reorder is first stored as `PENDING`. Its generated ID determines a stable, unique `BuyerRef` and `X-Request-Id`; retries and restarts reuse both. HTTP requests have a three-second timeout and at most three attempts with backoff. Scheduled dispatch retries pending rows, while scheduled tracking polls open purchase orders. Supplier credentials are read from `LS_API_KEY`, never committed.
 
+For the marketplace lab, also apply the additive `db/marketplace_channel.sql` migration before
+starting the backend. It adds a durable feed cursor, processed event IDs, order correlation, a
+stock-update outbox, and backorder tracking; it does not reset existing shop data. Both outbound
+adapters attach the same per-process `X-Client-Instance` UUID. The marketplace channel reads its
+client ID from `TIANGGE_CLIENT_ID` (falling back to `LS_CLIENT_ID`) and its API key from `LS_API_KEY`.
+Its listing supplier SKUs are read from the existing supplier product mappings.
+
+The `edu.cit.aaron.channel` package keeps its HTTP client, JSON handling, feed poller, and persistence
+adapter package-private. Order and Inventory receive only generic order references and inventory
+events; neither module depends on Tiangge. Marketplace orders use the normal Order/Inventory
+reservation path, and their generic source reference makes feed retries idempotent. Stock changes
+are queued after the inventory transaction commits and retried until Tiangge accepts the update.
+Do not make real partner API calls from Postman, curl, a browser, or an external script after the
+first heartbeat/listing has made the shop live.
+
 The supplier limits each request to 99 cases. A permanently invalid local request is retained with the system-owned `FAILED` status for correction; transient transport, rate-limit, and service errors remain `PENDING` with backoff.
 
 The supplier's numeric quota and session lifetime have not been measured. Tracking is throttled to one scheduled polling pass per minute; confirm the provider's quota before increasing frequency.

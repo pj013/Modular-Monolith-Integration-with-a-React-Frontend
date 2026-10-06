@@ -16,8 +16,9 @@ create table inventory (
 
 create table orders (
     order_id    bigserial primary key,
-    status      varchar not null check (status in ('CONFIRMED', 'REJECTED', 'CANCELLED')),
+    status      varchar not null check (status in ('CONFIRMED', 'REJECTED', 'CANCELLED', 'BACKORDERED')),
     reason      varchar,
+    external_reference varchar unique,
     created_at  timestamp not null default now()
 );
 
